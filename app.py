@@ -14,7 +14,6 @@ def send_telegram(message):
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         data = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
         requests.post(url, data=data, timeout=10)
-        print("Telegram Sent!")
     except Exception as e:
         print(f"Error: {e}")
 
@@ -37,32 +36,34 @@ def get_levels_yahoo(symbol):
         high = round(high, 2)
         low = round(low, 2)
 
-        range_val = high - low
-        buy_level = round(high + range_val*0.15, 2)
-        buy_sl = round(buy_level - range_val*0.25, 2)
-        buy_tgt = round(buy_level + range_val*0.6, 2)
+        # TIGHT LEVELS LOGIC - FINAL
+        if "BTC" in symbol:
+            pct = 0.004 # BTC ki 0.4%
+        else:
+            pct = 0.002 # NIFTY ki 0.2%
 
-        sell_level = round(low - range_val*0.15, 2)
-        sell_sl = round(sell_level + range_val*0.25, 2)
-        sell_tgt = round(sell_level - range_val*0.6, 2)
+        buy_level = round(high * (1 + pct), 2)
+        buy_sl = round(buy_level * (1 - pct*1.2), 2)
+        buy_tgt = round(buy_level * (1 + pct*2), 2)
+
+        sell_level = round(low * (1 - pct), 2)
+        sell_sl = round(sell_level * (1 + pct*1.2), 2)
+        sell_tgt = round(sell_level * (1 - pct*2), 2)
 
         return close, buy_level, buy_sl, buy_tgt, sell_level, sell_sl, sell_tgt
-    except:
-        return 86277.92, 86700, 86500, 87000, 85000, 85200, 84800
+    except Exception as e:
+        print(e)
+        return 86239.77, 86584.0, 86200.0, 86900.0, 85900.0, 86200.0, 85600.0
 
 def daily_job():
-    print("Running Daily Job...")
     btc_close, btc_buy, btc_bsl, btc_btgt, btc_sell, btc_ssl, btc_stgt = get_levels_yahoo("BTC-USD")
     nifty_close, n_buy, n_bsl, n_btgt, n_sell, n_ssl, n_stgt = get_levels_yahoo("^NSEI")
-
-    msg = f"🔥 *NIFTY + BTC HUNTER - AUTO ALERT 9:15 AM* 🔥\n\n₿ *BTC: {btc_close}*\n🟢 BUY ABOVE {btc_buy} | SL {btc_bsl} | TGT {btc_btgt}\n🔴 SELL BELOW {btc_sell} | SL {btc_ssl} | TGT {btc_stgt}\n\n📈 *NIFTY: {nifty_close}*\n🟢 BUY ABOVE {n_buy} | SL {n_bsl} | TGT {n_btgt}\n🔴 SELL BELOW {n_sell} | SL {n_ssl} | TGT {n_stgt}\n\n⏰ {datetime.now().strftime('%d-%m-%Y %H:%M')}"
+    msg = f"🔥 *NIFTY + BTC HUNTER - AUTO 9:15 AM* 🔥\n\n₿ *BTC: {btc_close}*\n🟢 BUY ABOVE {btc_buy} | SL {btc_bsl} | TGT {btc_btgt}\n🔴 SELL BELOW {btc_sell} | SL {btc_ssl} | TGT {btc_stgt}\n\n📈 *NIFTY: {nifty_close}*\n🟢 BUY ABOVE {n_buy} | SL {n_bsl} | TGT {n_btgt}\n🔴 SELL BELOW {n_sell} | SL {n_ssl} | TGT {n_stgt}\n\n⏰ {datetime.now().strftime('%d-%m-%Y %H:%M')}"
     send_telegram(msg)
 
-# Scheduler - 9:15 AM IST = 3:45 AM UTC
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
 scheduler.add_job(daily_job, 'cron', hour=9, minute=15)
 scheduler.start()
-print("Scheduler Started - Daily 9:15 AM IST")
 
 @app.route("/")
 def home():
@@ -85,7 +86,6 @@ def home():
     <div style="text-align:center">
     <a href="/send_now" style="background:#0a4a6b;color:white;padding:15px 30px;text-decoration:none;border-radius:8px;font-weight:bold">📩 Send Telegram Now</a><br><br>
     <a href="/test_auto" style="background:green;color:white;padding:10px 20px;text-decoration:none;border-radius:8px">Test Auto Job</a>
-    <p>Next Auto Alert: Today 9:15 AM IST</p>
     </div>
     </body>
     """
@@ -99,7 +99,7 @@ def send_now():
 @app.route("/test_auto")
 def test_auto():
     daily_job()
-    return "<h3>Auto Job Tested! Check Telegram</h3><a href='/'>Go Back</a>"
+    return "<h3>Auto Job Tested!</h3><a href='/'>Go Back</a>"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
