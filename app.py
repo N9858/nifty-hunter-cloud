@@ -1,61 +1,87 @@
-from flask import Flask
+from flask import Flask, request
 import yfinance as yf
-import requests, threading, time
+import requests
 from datetime import datetime
 
 app = Flask(__name__)
 
-BOT_TOKEN = "8960559093:AAFCsaeOu4PsSRY4QKAKAAJyyTcImkVagZw"
+# --- FINAL TOKENS ---
+BOT_TOKEN = "8960559093:AAEcfT8WxfbH9sfGdB1t7vdrDmCsVe85fH8"
 CHAT_ID = "5066142970"
 
-def send_telegram(msg):
+def send_telegram(message):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        r = requests.post(url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"})
-        print(r.text)
+        data = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
+        r = requests.post(url, data=data, timeout=10)
         return r.text
     except Exception as e:
         return str(e)
 
 def get_levels(symbol):
     try:
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period="1d", interval="15m")
-        if df.empty: return None
-        high = df['High'].max(); low = df['Low'].min(); close = df['Close'].iloc[-1]
-        return {
-            "close": round(close,2),
-            "buy": round(high,2), "buy_sl": round(high*0.9985,2), "buy_tgt": round(high*1.003,2),
-            "sell": round(low,2), "sell_sl": round(low*1.0015,2), "sell_tgt": round(low*0.997,2)
-        }
-    except: return None
+        data = yf.download(symbol, period="2d", interval="1d")
+        last = data.iloc[-1]
+        close = float(last['Close'])
+        high = float(last['High'])
+        low = float(last['Low'])
+        
+        # Simple Hunter Logic
+        buy_level = round(high + (high-low)*0.2, 2)
+        buy_sl = round(buy_level - (high-low)*0.3, 2)
+        buy_tgt = round(buy_level + (high-low)*0.5, 2)
+        
+        sell_level = round(low - (high-low)*0.2, 2)
+        sell_sl = round(sell_level + (high-low)*0.3, 2)
+        sell_tgt = round(sell_level - (high-low)*0.5, 2)
+        
+        return close, buy_level, buy_sl, buy_tgt, sell_level, sell_sl, sell_tgt
+    except:
+        return 0,0,0,0,0,0,0
 
 @app.route("/")
 def home():
-    btc = get_levels("BTC-USD"); nifty = get_levels("^NSEI")
-    def card(title, d, color):
-        if not d: return ""
-        return f"<div style='background:#111;padding:15px;border-radius:10px;margin:10px;border-left:4px solid {color}'><h3>{title}: {d['close']}</h3><p style='color:#00ff88'>🟢 BUY ABOVE {d['buy']} | SL {d['buy_sl']} | TGT {d['buy_tgt']}</p><p style='color:#ff4444'>🔴 SELL BELOW {d['sell']} | SL {d['sell_sl']} | TGT {d['sell_tgt']}</p></div>"
-    return f"<body style='background:#000;color:#fff;font-family:Arial;padding:20px'><h1 style='text-align:center'>🔥 NIFTY + BTC HUNTER 🔥</h1>{card('₿ BTC',btc,'#f7931a')}{card('📈 NIFTY',nifty,'#00ff88')}<p style='text-align:center'><a href='/send_now' style='background:#0088cc;color:white;padding:12px 20px;border-radius:8px;text-decoration:none'>📩 Send Telegram Now</a></p><p style='text-align:center;color:#888'>{datetime.now()}</p></body>"
+    btc_close, btc_buy, btc_bsl, btc_btgt, btc_sell, btc_ssl, btc_stgt = get_levels("BTC-USD")
+    nifty_close, n_buy, n_bsl, n_btgt, n_sell, n_ssl, n_stgt = get_levels("^NSEI")
+
+    html = f"""
+    <body style="background:black;color:white;font-family:Arial;padding:20px">
+    <h2 style="text-align:center">🔥 NIFTY + BTC HUNTER 🔥</h2>
+    
+    <div style="background:#111;padding:15px;border-left:4px solid orange;border-radius:8px;margin-bottom:15px">
+    <b>₿ BTC: {btc_close}</b><br><br>
+    <span style="color:#00ff88">🟢 BUY ABOVE {btc_buy} | SL {btc_bsl} | TGT {btc_btgt}</span><br>
+    <span style="color:#ff4444">🔴 SELL BELOW {btc_sell} | SL {btc_ssl} | TGT {btc_stgt}</span>
+    </div>
+
+    <div style="background:#111;padding:15px;border-left:4px solid #00ff88;border-radius:8px;margin-bottom:15px">
+    <b>📈 NIFTY: {nifty_close}</b><br><br>
+    <span style="color:#00ff88">🟢 BUY ABOVE {n_buy} | SL {n_bsl} | TGT {n_btgt}</span><br>
+    <span style="color:#ff4444">🔴 SELL BELOW {n_sell} | SL {n_ssl} | TGT {n_stgt}</span>
+    </div>
+
+    <div style="text-align:center">
+    <a href="/send_now" style="background:#0a4a6b;color:white;padding:10px 20px;text-decoration:none;border-radius:8px">📩 Send Telegram Now</a>
+    <p style="font-size:12px;color:gray">{datetime.now()}</p>
+    </div>
+    </body>
+    """
+    return html
 
 @app.route("/send_now")
 def send_now():
-    btc = get_levels("BTC-USD"); nifty = get_levels("^NSEI")
-    msg = f"🔥 <b>NIFTY + BTC UPDATE</b> 🔥\n⏰ {datetime.now().strftime('%d-%m %H:%M')}\n\n"
-    if btc: msg += f"₿ <b>BTC: ${btc['close']}</b>\n🟢 BUY {btc['buy']} | SL {btc['buy_sl']} | TGT {btc['buy_tgt']}\n🔴 SELL {btc['sell']} | SL {btc['sell_sl']} | TGT {btc['sell_tgt']}\n\n"
-    if nifty: msg += f"📈 <b>NIFTY: {nifty['close']}</b>\n🟢 BUY {nifty['buy']} | SL {nifty['buy_sl']} | TGT {nifty['buy_tgt']}\n🔴 SELL {nifty['sell']} | SL {nifty['sell_sl']} | TGT {nifty['sell_tgt']}"
+    btc_close, btc_buy, btc_bsl, btc_btgt, btc_sell, btc_ssl, btc_stgt = get_levels("BTC-USD")
+    nifty_close, n_buy, n_bsl, n_btgt, n_sell, n_ssl, n_stgt = get_levels("^NSEI")
+    
+    msg = f"🔥 *NIFTY + BTC HUNTER* 🔥\n\n₿ *BTC: {btc_close}*\nBUY ABOVE {btc_buy} | SL {btc_bsl} | TGT {btc_btgt}\nSELL BELOW {btc_sell} | SL {btc_ssl} | TGT {btc_stgt}\n\n📈 *NIFTY: {nifty_close}*\nBUY ABOVE {n_buy} | SL {n_bsl} | TGT {n_btgt}\nSELL BELOW {n_sell} | SL {n_ssl} | TGT {n_stgt}"
+    
     result = send_telegram(msg)
-    return f"Telegram API Response:<br>{result}<br><br>Message:<br>{msg.replace(chr(10),'<br>')}"
+    return f"<h3>Telegram Result:</h3><pre>{result}</pre><br><a href='/'>Go Back</a><p>If 'ok':true vasthe Telegram vachindi!</p>"
 
-# auto every 1 hour
-def auto_sender():
-    while True:
-        time.sleep(3600)
-        try:
-            btc = get_levels("BTC-USD"); nifty = get_levels("^NSEI")
-            if btc: send_telegram(f"⏰ AUTO ₿ BTC ${btc['close']} BUY {btc['buy']} SELL {btc['sell']}")
-        except: pass
-threading.Thread(target=auto_sender, daemon=True).start()
+@app.route("/check_bot")
+def check_bot():
+    r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe")
+    return f"<pre>{r.text}</pre>"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
