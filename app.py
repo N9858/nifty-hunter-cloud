@@ -1,36 +1,38 @@
+import requests, os
 from flask import Flask
-import os, requests
-
+import time
 app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "NIFTY HUNTER LIVE! /check kottu"
-
-@app.route("/check")
-def check():
-    TELE_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-    ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN")
-    
-    # Nifty Price
+TOKEN = os.environ.get("TOKEN", "")
+CHAT_ID = os.environ.get("CHAT_ID", "")
+def send_telegram(msg):
+    if not TOKEN or not CHAT_ID: return
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     try:
-        h = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
-        url = "https://api.upstox.com/v2/market-quote/ltp?instrument_key=NSE_INDEX|Nifty 50"
-        price = requests.get(url, headers=h, timeout=10).json()['data']['NSE_INDEX:Nifty 50']['last_price']
-    except:
-        return "Upstox Token Expired - Update Token"
-
-    atm = int(round(price/50)*50)
-    msg = f"✅ NIFTY LIVE {price}\n🟢 BUY {atm} CE\nTarget {price+80}\nSL {price-60}"
-    
-    # Telegram
-    try:
-        t_url = f"https://api.telegram.org/bot{TELE_TOKEN}/sendMessage"
-        requests.post(t_url, data={"chat_id": CHAT_ID, "text": msg}, timeout=10)
+        requests.post(url, data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"})
     except: pass
-    
+def get_nifty_data():
+    try:
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1d&range=2d"
+        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10).json()
+        result = r['chart']['result'][0]
+        high = result['indicators']['quote'][0]['high'][-2]
+        low = result['indicators']['quote'][0]['low'][-2]
+        close = result['indicators']['quote'][0]['close'][-2]
+        curr = float(result['meta']['regularMarketPrice'])
+        return high, low, close, curr
+    except Exception as e:
+        print(e)
+        return None, None, None, None
+@app.route('/')
+def home():
+    high, low, close, curr = get_nifty_data()
+    if not high: return "Loading, refresh again"
+    buy_level = round(high + 10)
+    sell_level = round(low - 10)
+    sl_buy = round(buy_level - 40)
+    sl_sell = round(sell_level + 40)
+    msg = f"<b>NIFTY DAILY ENTRY - {time.strftime('%d-%m-%Y')}</b>\n\nCurrent: {curr}\nY-High: {high} | Y-Low: {low}\n\nBUY: {buy_level} SL: {sl_buy} TGT: {buy_level+80}\nSELL: {sell_level} SL: {sl_sell} TGT: {sell_level-80}"
+    send_telegram(msg)
     return msg
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000)
