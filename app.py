@@ -1,75 +1,88 @@
 from flask import Flask
 import yfinance as yf
+import requests
+import threading
+import time
 from datetime import datetime
 
 app = Flask(__name__)
 
-def get_levels():
+BOT_TOKEN = "8742634693:AAGglf8RKGZTMdEXXAx0ljfv2qtr5Ue1-M8"
+CHAT_ID = "5066142970"
+
+def send_telegram(msg):
     try:
-        ticker = yf.Ticker("^NSEI")
-        hist = ticker.history(period="5d", auto_adjust=True)
-        if len(hist) < 2:
-            return None
-        
-        # last 2 days
-        y_high = float(hist['High'].iloc[-2])
-        y_low = float(hist['Low'].iloc[-2])
-        curr = float(hist['Close'].iloc[-1])
-        
-        buy = round(y_high + 10, 0)
-        buy_sl = round(buy - 40, 0)
-        buy_tgt = round(buy + 80, 0)
-        
-        sell = round(y_low - 10, 0)
-        sell_sl = round(sell + 40, 0)
-        sell_tgt = round(sell - 80, 0)
-        
-        return {
-            "date": datetime.now().strftime("%d-%m-%Y"),
-            "current": round(curr,1),
-            "y_high": y_high,
-            "y_low": y_low,
-            "buy": buy, "buy_sl": buy_sl, "buy_tgt": buy_tgt,
-            "sell": sell, "sell_sl": sell_sl, "sell_tgt": sell_tgt
-        }
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        requests.post(url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"})
+        print("Telegram sent!")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Telegram error: {e}")
+
+def get_levels(symbol):
+    try:
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="1d", interval="15m")
+        if df.empty:
+            return None
+        high = df['High'].max()
+        low = df['Low'].min()
+        close = df['Close'].iloc[-1]
+        buy = round(high, 2)
+        sell = round(low, 2)
+        buy_sl = round(buy - (buy*0.0015), 2)
+        buy_tgt = round(buy + (buy*0.003), 2)
+        sell_sl = round(sell + (sell*0.0015), 2)
+        sell_tgt = round(sell - (sell*0.003), 2)
+        return {"close": round(close,2), "buy": buy, "buy_sl": buy_sl, "buy_tgt": buy_tgt, "sell": sell, "sell_sl": sell_sl, "sell_tgt": sell_tgt}
+    except:
         return None
 
-@app.route('/')
+@app.route("/")
 def home():
-    d = get_levels()
-    if not d:
-        return "Data loading... wait 10 sec and refresh | Nifty market closed ayithe data raadu, 5 min lo malli chudu"
+    btc = get_levels("BTC-USD")
+    nifty = get_levels("^NSEI")
     
-    html = f"""
-    <html><head><meta name='viewport' content='width=device-width, initial-scale=1'>
-    <style>
-    body{{background:#0a0a0a;color:white;font-family:Arial;text-align:center;padding:20px}}
-    .card{{background:#1a1a1a;border-radius:20px;padding:20px;margin:15px auto;max-width:400px;box-shadow:0 0 20px #222}}
-    .buy{{border-left:5px solid #00ff88}} .sell{{border-left:5px solid #ff4444}}
-    h1{{color:#ffd700}} .price{{font-size:28px;font-weight:bold}}
-    .level{{font-size:20px;margin:8px}}
-    </style></head><body>
-    <h1>🎯 NIFTY HUNTER</h1>
-    <p>{d['date']} | Current: {d['current']}</p>
-    <p>Y-High: {d['y_high']:.1f} | Y-Low: {d['y_low']:.1f}</p>
-    
-    <div class='card buy'>
-        <h2 style='color:#00ff88'>🟢 BUY ABOVE</h2>
-        <div class='price'>{d['buy']}</div>
-        <div class='level'>SL: {d['buy_sl']} | TGT: {d['buy_tgt']}</div>
-    </div>
-    
-    <div class='card sell'>
-        <h2 style='color:#ff4444'>🔴 SELL BELOW</h2>
-        <div class='price'>{d['sell']}</div>
-        <div class='level'>SL: {d['sell_sl']} | TGT: {d['sell_tgt']}</div>
-    </div>
-    <p style='color:gray'>Auto updates daily 9:15 AM</p>
+    btc_html = f"<div style='background:#111;padding:15px;border-radius:10px;margin:10px;border-left:4px solid #f7931a'><h3>₿ BTC: ${btc['close']}</h3><p style='color:#00ff88'>🟢 BUY ABOVE {btc['buy']} | SL {btc['buy_sl']} | TGT {btc['buy_tgt']}</p><p style='color:#ff4444'>🔴 SELL BELOW {btc['sell']} | SL {btc['sell_sl']} | TGT {btc['sell_tgt']}</p></div>" if btc else "<p>BTC loading...</p>"
+    nifty_html = f"<div style='background:#111;padding:15px;border-radius:10px;margin:10px;border-left:4px solid #00ff88'><h3>📈 NIFTY: {nifty['close']}</h3><p style='color:#00ff88'>🟢 BUY ABOVE {nifty['buy']} | SL {nifty['buy_sl']} | TGT {nifty['buy_tgt']}</p><p style='color:#ff4444'>🔴 SELL BELOW {nifty['sell']} | SL {nifty['sell_sl']} | TGT {nifty['sell_tgt']}</p></div>" if nifty else "<p>Nifty loading...</p>"
+
+    return f"""
+    <html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Nifty Hunter + BTC</title></head>
+    <body style="background:#000;color:#fff;font-family:Arial;padding:20px">
+    <h1 style="text-align:center">🔥 NIFTY + BTC HUNTER 🔥</h1>
+    {btc_html}
+    {nifty_html}
+    <p style="text-align:center;margin-top:20px"><a href="/send_now" style="background:#0088cc;color:white;padding:12px 20px;border-radius:8px;text-decoration:none">📩 Send Telegram Now</a></p>
+    <p style="text-align:center;color:#888;font-size:12px">Auto Telegram every 1 hour | {datetime.now().strftime('%d-%m %H:%M')}</p>
     </body></html>
     """
-    return html
 
-if __name__ == '__main__':
-    app.run()
+@app.route("/send_now")
+def send_now():
+    btc = get_levels("BTC-USD")
+    nifty = get_levels("^NSEI")
+    msg = f"🔥 <b>NIFTY + BTC UPDATE</b> 🔥\n⏰ {datetime.now().strftime('%d-%m %H:%M')}\n\n"
+    if btc:
+        msg += f"₿ <b>BTC: ${btc['close']}</b>\n🟢 BUY ABOVE {btc['buy']} | SL {btc['buy_sl']} | TGT {btc['buy_tgt']}\n🔴 SELL BELOW {btc['sell']} | SL {btc['sell_sl']} | TGT {btc['sell_tgt']}\n\n"
+    if nifty:
+        msg += f"📈 <b>NIFTY: {nifty['close']}</b>\n🟢 BUY ABOVE {nifty['buy']} | SL {nifty['buy_sl']} | TGT {nifty['buy_tgt']}\n🔴 SELL BELOW {nifty['sell']} | SL {nifty['sell_sl']} | TGT {nifty['sell_tgt']}\n"
+    send_telegram(msg)
+    return f"Sent! Check Telegram<br><br>{msg.replace(chr(10), '<br>')}"
+
+def auto_sender():
+    while True:
+        time.sleep(3600) # 1 hour ki okasari
+        try:
+            btc = get_levels("BTC-USD")
+            nifty = get_levels("^NSEI")
+            if btc or nifty:
+                msg = f"⏰ AUTO UPDATE {datetime.now().strftime('%H:%M')}\n\n"
+                if btc: msg += f"₿ BTC ${btc['close']} | BUY {btc['buy']} / SELL {btc['sell']}\n"
+                if nifty: msg += f"📈 NIFTY {nifty['close']} | BUY {nifty['buy']} / SELL {nifty['sell']}"
+                send_telegram(msg)
+        except:
+            pass
+
+threading.Thread(target=auto_sender, daemon=True).start()
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
