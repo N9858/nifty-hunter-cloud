@@ -1,4 +1,5 @@
 Flask
-yfinance
 requests
+yfinance
 gunicorn
+APScheduler
