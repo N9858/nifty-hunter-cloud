@@ -1,5 +1,5 @@
 Flask
 requests
-yfinance
 gunicorn
 APScheduler
+pytz
