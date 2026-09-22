@@ -6,35 +6,41 @@ app = Flask(__name__)
 
 def get_levels():
     try:
-        data = yf.download("^NSEI", period="2d", interval="1d", progress=False)
-        if len(data) < 2: return None
-        y_high = float(data['High'].iloc[-2])
-        y_low = float(data['Low'].iloc[-2])
-        curr = float(data['Close'].iloc[-2])
+        ticker = yf.Ticker("^NSEI")
+        hist = ticker.history(period="5d", auto_adjust=True)
+        if len(hist) < 2:
+            return None
         
-        buy = round(y_high + 10.2, 0)
+        # last 2 days
+        y_high = float(hist['High'].iloc[-2])
+        y_low = float(hist['Low'].iloc[-2])
+        curr = float(hist['Close'].iloc[-1])
+        
+        buy = round(y_high + 10, 0)
         buy_sl = round(buy - 40, 0)
         buy_tgt = round(buy + 80, 0)
         
-        sell = round(y_low - 10.2, 0)
+        sell = round(y_low - 10, 0)
         sell_sl = round(sell + 40, 0)
         sell_tgt = round(sell - 80, 0)
         
         return {
             "date": datetime.now().strftime("%d-%m-%Y"),
-            "current": curr,
+            "current": round(curr,1),
             "y_high": y_high,
             "y_low": y_low,
             "buy": buy, "buy_sl": buy_sl, "buy_tgt": buy_tgt,
             "sell": sell, "sell_sl": sell_sl, "sell_tgt": sell_tgt
         }
-    except: return None
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
 
 @app.route('/')
 def home():
     d = get_levels()
     if not d:
-        return "Data loading... refresh"
+        return "Data loading... wait 10 sec and refresh | Nifty market closed ayithe data raadu, 5 min lo malli chudu"
     
     html = f"""
     <html><head><meta name='viewport' content='width=device-width, initial-scale=1'>
