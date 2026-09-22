@@ -1,38 +1,69 @@
-import requests, os
 from flask import Flask
-import time
+import yfinance as yf
+from datetime import datetime
+
 app = Flask(__name__)
-TOKEN = os.environ.get("TOKEN", "")
-CHAT_ID = os.environ.get("CHAT_ID", "")
-def send_telegram(msg):
-    if not TOKEN or not CHAT_ID: return
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+
+def get_levels():
     try:
-        requests.post(url, data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"})
-    except: pass
-def get_nifty_data():
-    try:
-        url = "https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1d&range=2d"
-        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10).json()
-        result = r['chart']['result'][0]
-        high = result['indicators']['quote'][0]['high'][-2]
-        low = result['indicators']['quote'][0]['low'][-2]
-        close = result['indicators']['quote'][0]['close'][-2]
-        curr = float(result['meta']['regularMarketPrice'])
-        return high, low, close, curr
-    except Exception as e:
-        print(e)
-        return None, None, None, None
+        data = yf.download("^NSEI", period="2d", interval="1d", progress=False)
+        if len(data) < 2: return None
+        y_high = float(data['High'].iloc[-2])
+        y_low = float(data['Low'].iloc[-2])
+        curr = float(data['Close'].iloc[-2])
+        
+        buy = round(y_high + 10.2, 0)
+        buy_sl = round(buy - 40, 0)
+        buy_tgt = round(buy + 80, 0)
+        
+        sell = round(y_low - 10.2, 0)
+        sell_sl = round(sell + 40, 0)
+        sell_tgt = round(sell - 80, 0)
+        
+        return {
+            "date": datetime.now().strftime("%d-%m-%Y"),
+            "current": curr,
+            "y_high": y_high,
+            "y_low": y_low,
+            "buy": buy, "buy_sl": buy_sl, "buy_tgt": buy_tgt,
+            "sell": sell, "sell_sl": sell_sl, "sell_tgt": sell_tgt
+        }
+    except: return None
+
 @app.route('/')
 def home():
-    high, low, close, curr = get_nifty_data()
-    if not high: return "Loading, refresh again"
-    buy_level = round(high + 10)
-    sell_level = round(low - 10)
-    sl_buy = round(buy_level - 40)
-    sl_sell = round(sell_level + 40)
-    msg = f"<b>NIFTY DAILY ENTRY - {time.strftime('%d-%m-%Y')}</b>\n\nCurrent: {curr}\nY-High: {high} | Y-Low: {low}\n\nBUY: {buy_level} SL: {sl_buy} TGT: {buy_level+80}\nSELL: {sell_level} SL: {sl_sell} TGT: {sell_level-80}"
-    send_telegram(msg)
-    return msg
+    d = get_levels()
+    if not d:
+        return "Data loading... refresh"
+    
+    html = f"""
+    <html><head><meta name='viewport' content='width=device-width, initial-scale=1'>
+    <style>
+    body{{background:#0a0a0a;color:white;font-family:Arial;text-align:center;padding:20px}}
+    .card{{background:#1a1a1a;border-radius:20px;padding:20px;margin:15px auto;max-width:400px;box-shadow:0 0 20px #222}}
+    .buy{{border-left:5px solid #00ff88}} .sell{{border-left:5px solid #ff4444}}
+    h1{{color:#ffd700}} .price{{font-size:28px;font-weight:bold}}
+    .level{{font-size:20px;margin:8px}}
+    </style></head><body>
+    <h1>🎯 NIFTY HUNTER</h1>
+    <p>{d['date']} | Current: {d['current']}</p>
+    <p>Y-High: {d['y_high']:.1f} | Y-Low: {d['y_low']:.1f}</p>
+    
+    <div class='card buy'>
+        <h2 style='color:#00ff88'>🟢 BUY ABOVE</h2>
+        <div class='price'>{d['buy']}</div>
+        <div class='level'>SL: {d['buy_sl']} | TGT: {d['buy_tgt']}</div>
+    </div>
+    
+    <div class='card sell'>
+        <h2 style='color:#ff4444'>🔴 SELL BELOW</h2>
+        <div class='price'>{d['sell']}</div>
+        <div class='level'>SL: {d['sell_sl']} | TGT: {d['sell_tgt']}</div>
+    </div>
+    <p style='color:gray'>Auto updates daily 9:15 AM</p>
+    </body></html>
+    """
+    return html
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+    app.run()
