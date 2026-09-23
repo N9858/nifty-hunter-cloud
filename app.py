@@ -1,105 +1,68 @@
+import os, requests
 from flask import Flask
-import requests
-from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
+from datetime import datetime
 
 app = Flask(__name__)
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+CHAT_ID = os.environ.get("CHAT_ID")
 
-BOT_TOKEN = "8960559093:AAEcfT8WxfbH9sfGdB1t7vdrDmCsVe85fH8"
-CHAT_ID = "5066142970"
-
-def send_telegram(message):
+def send_telegram(msg):
+    if not BOT_TOKEN or not CHAT_ID: return
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        data = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
-        requests.post(url, data=data, timeout=10)
-    except Exception as e:
-        print(f"Error: {e}")
+        requests.post(url, json={"chat_id": CHAT_ID, "text": msg}, timeout=10)
+    except: pass
 
-def get_levels_yahoo(symbol):
+def get_levels():
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1d"
-        r = requests.get(url, headers=headers, timeout=10)
-        j = r.json()
-        result = j['chart']['result'][0]
-        closes = result['indicators']['quote'][0]['close']
-        highs = result['indicators']['quote'][0]['high']
-        lows = result['indicators']['quote'][0]['low']
+        r = requests.get("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=5", timeout=10).json()
+        btc_close = float(r[-1][4])
+        btc_pct = 0.004
+        btc_buy = round(btc_close * (1 + btc_pct), 2)
+        btc_sell = round(btc_close * (1 - btc_pct), 2)
+        btc_sl_buy = round(btc_close * (1 + btc_pct*0.6), 2)
+        btc_sl_sell = round(btc_close * (1 - btc_pct*0.6), 2)
+        btc_tgt_buy = round(btc_buy * 1.008, 2)
+        btc_tgt_sell = round(btc_sell * 0.992, 2)
 
-        close = [c for c in closes if c is not None][-1]
-        high = max([h for h in highs if h is not None][-2:])
-        low = min([l for l in lows if l is not None][-2:])
+        r2 = requests.get("https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1d&range=5d", headers={"User-Agent":"Mozilla/5.0"}, timeout=10).json()
+        n_close = float(r2['chart']['result'][0]['indicators']['quote'][0]['close'][-1])
+        n_pct = 0.004
+        n_buy = round(n_close * (1 + n_pct), 2)
+        n_sell = round(n_close * (1 - n_pct), 2)
+        n_sl_buy = round(n_close * (1 + n_pct*0.6), 2)
+        n_sl_sell = round(n_close * (1 - n_pct*0.6), 2)
+        n_tgt_buy = round(n_buy * 1.008, 2)
+        n_tgt_sell = round(n_sell * 0.992, 2)
 
-        close = round(close, 2)
-        high = round(high, 2)
-        low = round(low, 2)
-
-        # TIGHT LEVELS LOGIC - FINAL
-        if "BTC" in symbol:
-            pct = 0.004 # BTC ki 0.4%
-        else:
-            pct = 0.002 # NIFTY ki 0.2%
-
-        buy_level = round(high * (1 + pct), 2)
-        buy_sl = round(buy_level * (1 - pct*1.2), 2)
-        buy_tgt = round(buy_level * (1 + pct*2), 2)
-
-        sell_level = round(low * (1 - pct), 2)
-        sell_sl = round(sell_level * (1 + pct*1.2), 2)
-        sell_tgt = round(sell_level * (1 - pct*2), 2)
-
-        return close, buy_level, buy_sl, buy_tgt, sell_level, sell_sl, sell_tgt
+        return btc_close, btc_buy, btc_sell, btc_sl_buy, btc_sl_sell, btc_tgt_buy, btc_tgt_sell, n_close, n_buy, n_sell, n_sl_buy, n_sl_sell, n_tgt_buy, n_tgt_sell
     except Exception as e:
         print(e)
-        return 86239.77, 86584.0, 86200.0, 86900.0, 85900.0, 86200.0, 85600.0
+        return 86000, 86344, 85656, 86200, 85800, 87000, 85000, 23400, 23493, 23306, 23456, 23344, 23681, 23120
+
+def build_msg():
+    b_c, b_b, b_s, b_sl_b, b_sl_s, b_t_b, b_t_s, n_c, n_b, n_s, n_sl_b, n_sl_s, n_t_b, n_t_s = get_levels()
+    now = datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%d-%m-%Y %H:%M')
+    msg = f"🔥 NIFTY + BTC HUNTER - AUTO 9:15 AM 🔥\n\n₿ BTC: {b_c}\n🟢 BUY ABOVE {b_b} | SL {b_sl_b} | TGT {b_t_b}\n🔴 SELL BELOW {b_s} | SL {b_sl_s} | TGT {b_t_s}\n\n📈 NIFTY: {n_c}\n🟢 BUY ABOVE {n_b} | SL {n_sl_b} | TGT {n_t_b}\n🔴 SELL BELOW {n_s} | SL {n_sl_s} | TGT {n_t_s}\n\n⏰ {now}"
+    return msg
 
 def daily_job():
-    btc_close, btc_buy, btc_bsl, btc_btgt, btc_sell, btc_ssl, btc_stgt = get_levels_yahoo("BTC-USD")
-    nifty_close, n_buy, n_bsl, n_btgt, n_sell, n_ssl, n_stgt = get_levels_yahoo("^NSEI")
-    msg = f"🔥 *NIFTY + BTC HUNTER - AUTO 9:15 AM* 🔥\n\n₿ *BTC: {btc_close}*\n🟢 BUY ABOVE {btc_buy} | SL {btc_bsl} | TGT {btc_btgt}\n🔴 SELL BELOW {btc_sell} | SL {btc_ssl} | TGT {btc_stgt}\n\n📈 *NIFTY: {nifty_close}*\n🟢 BUY ABOVE {n_buy} | SL {n_bsl} | TGT {n_btgt}\n🔴 SELL BELOW {n_sell} | SL {n_ssl} | TGT {n_stgt}\n\n⏰ {datetime.now().strftime('%d-%m-%Y %H:%M')}"
-    send_telegram(msg)
+    send_telegram(build_msg())
+
+@app.route('/')
+def home():
+    return build_msg().replace('\n','<br>') + '<br><br><a href="/send-now"><button style="padding:15px;background:green;color:white;font-size:20px">Send Telegram Now</button></a>'
+
+@app.route('/send-now')
+def send_now():
+    daily_job()
+    return "Sent! Check Telegram"
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
 scheduler.add_job(daily_job, 'cron', hour=9, minute=15)
 scheduler.start()
 
-@app.route("/")
-def home():
-    btc_close, btc_buy, btc_bsl, btc_btgt, btc_sell, btc_ssl, btc_stgt = get_levels_yahoo("BTC-USD")
-    nifty_close, n_buy, n_bsl, n_btgt, n_sell, n_ssl, n_stgt = get_levels_yahoo("^NSEI")
-    html = f"""
-    <body style="background:black;color:white;font-family:Arial;padding:20px">
-    <h2 style="text-align:center">🔥 NIFTY + BTC HUNTER - AUTO MODE ON 🔥</h2>
-    <p style="text-align:center;color:#00ff88">✅ Daily 9:15 AM Auto Alert Active!</p>
-    <div style="background:#111;padding:15px;border-left:4px solid orange;border-radius:8px;margin-bottom:15px">
-    <b>₿ BTC: {btc_close}</b><br><br>
-    <span style="color:#00ff88">🟢 BUY ABOVE {btc_buy} | SL {btc_bsl} | TGT {btc_btgt}</span><br>
-    <span style="color:#ff4444">🔴 SELL BELOW {btc_sell} | SL {btc_ssl} | TGT {btc_stgt}</span>
-    </div>
-    <div style="background:#111;padding:15px;border-left:4px solid #00ff88;border-radius:8px;margin-bottom:15px">
-    <b>📈 NIFTY: {nifty_close}</b><br><br>
-    <span style="color:#00ff88">🟢 BUY ABOVE {n_buy} | SL {n_bsl} | TGT {n_btgt}</span><br>
-    <span style="color:#ff4444">🔴 SELL BELOW {n_sell} | SL {n_ssl} | TGT {n_stgt}</span>
-    </div>
-    <div style="text-align:center">
-    <a href="/send_now" style="background:#0a4a6b;color:white;padding:15px 30px;text-decoration:none;border-radius:8px;font-weight:bold">📩 Send Telegram Now</a><br><br>
-    <a href="/test_auto" style="background:green;color:white;padding:10px 20px;text-decoration:none;border-radius:8px">Test Auto Job</a>
-    </div>
-    </body>
-    """
-    return html
-
-@app.route("/send_now")
-def send_now():
-    daily_job()
-    return "<h3>Sent! Check Telegram</h3><a href='/'>Go Back</a>"
-
-@app.route("/test_auto")
-def test_auto():
-    daily_job()
-    return "<h3>Auto Job Tested!</h3><a href='/'>Go Back</a>"
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT",10000)))
