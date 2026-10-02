@@ -2,7 +2,6 @@ import os, requests, time
 from flask import Flask
 import threading
 import os
-
 flask_app = Flask(__name__)
 @flask_app.route('/')
 def home(): return "Bot is Running!"
