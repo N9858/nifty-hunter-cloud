@@ -1,62 +1,50 @@
-import requests
-import time
-import os
-from flask import Flask
-import threading
+import os, time, requests
+from datetime import datetime
 
-# --- FLASK FOR RENDER PORT ---
-flask_app = Flask(__name__)
-@flask_app.route('/')
-def home():
-    return "Bot is Running! LIVE NIFTY Tracker"
+BOT_TOKEN = os.getenv("8802132310:AAFWkkr9V06Yq-B4hiB6QTG--2JBpgXVE14")
+CHAT_ID = os.getenv("5066142970")
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host='0.0.0.0', port=port)
+last_trend = ""
 
-threading.Thread(target=run_flask, daemon=True).start()
-# -----------------------------
-
-TOKEN = os.environ.get("8742634693:AAFg-Kj8kb3COA1Dv-FqXSvOlyD75zt3mzc")
-CHAT_ID = os.environ.get("5066142970")
-
-NO_LOW = 22400
-NO_HIGH = 22450
-BUY_LEVEL = 22500
-SELL_LEVEL = 22350
-
-def send_telegram(msg):
-    if not TOKEN or not CHAT_ID:
-        print("Token/Chat ID missing in Env Vars!")
-        return
+def send(text):
     try:
-        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        requests.get(url, params={"chat_id": CHAT_ID, "text": msg})
-    except Exception as e:
-        print(f"Telegram Error: {e}")
+        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": text}, timeout=10)
+    except:
+        pass
+
+print("BOT STARTED - CLEAN NO SPAM")
 
 while True:
     try:
-        r = requests.get("https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1m", headers={'User-Agent': 'Mozilla/5.0'}).json()
-        price = r['chart']['result'][0]['meta']['regularMarketPrice']
-        now = time.strftime('%H:%M:%S')
-        print(f"LIVE NIFTY: {price} | {now}")
+        r = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", timeout=10).json()
+        price = float(r['price'])
+    except:
+        price = 84500.0
 
-        if NO_LOW < price < NO_HIGH:
-            print(f"--> NO TRADE ZONE {NO_LOW}-{NO_HIGH}")
-        elif price >= BUY_LEVEL:
-            msg = f"🟢 BUY BREAKOUT! Nifty {price} -> Above {BUY_LEVEL}"
-            print(msg)
-            send_telegram(msg)
-            time.sleep(300)
-        elif price <= SELL_LEVEL:
-            msg = f"🔴 SELL BREAKDOWN! Nifty {price} -> Below {SELL_LEVEL}"
-            print(msg)
-            send_telegram(msg)
-            time.sleep(300)
-        else:
-            print("--> Waiting for level...")
-        time.sleep(60)
-    except Exception as e:
-        print(f"Error: {e}")
-        time.sleep(60)
+    now = datetime.now().strftime("%I:%M %p IST - %d %b")
+    
+    if price < 83726:
+        trend = "BEARISH"
+        setup = f"SELL BREAKDOWN CONFIRMED\nSell Below: 83726\nTarget: 82876\nSL: 85417"
+        status = "SELL NOW - Breakdown Done"
+        icon = "📉 DOWN"
+    elif price > 85416:
+        trend = "BULLISH"
+        setup = f"BUY BREAKOUT CONFIRMED\nBuy Above: 85416\nTarget: 86266\nSL: 83724"
+        status = "BUY NOW - Breakout Done"
+        icon = "📈 UP"
+    else:
+        trend = "SIDEWAYS"
+        setup = f"NO TRADE ZONE\nRange: 83726 - 85416"
+        status = "WAIT FOR BREAKOUT - Ippudu entry vaddu"
+        icon = "SIDEWAYS"
+
+    if trend != last_trend:
+        msg = f"BTC PRO BOT - LIVE\nTime: {now}\nPrice: ${price} {icon}\nTrend: {trend}\n\n{setup}\nStatus: {status}"
+        send(msg)
+        last_trend = trend
+        print(f"SENT {trend}")
+    else:
+        print(f"SKIP {trend}")
+
+    time.sleep(1800)
